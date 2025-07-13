@@ -122,12 +122,12 @@ func debugProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToo
 		return nil, err
 	}
 	switch resp := msg.(type) {
-	case *dap.LaunchResponse:
-		if !resp.Success {
-			return nil, fmt.Errorf("unable to launch program to debug via DAP server: %s", resp.Message)
+	case dap.ResponseMessage:
+		if !resp.GetResponse().Success {
+			return nil, fmt.Errorf("unable to launch program to debug via DAP server: %s", resp.GetResponse().Message)
 		}
-	case *dap.ErrorResponse:
-		return nil, fmt.Errorf("unable to launch program to debug via DAP server: %s", resp.Message)
+	case dap.EventMessage:
+		// Request was a success
 	}
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: "Started debugging: " + path}},
