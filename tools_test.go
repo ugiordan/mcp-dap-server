@@ -73,7 +73,7 @@ func TestBasic(t *testing.T) {
 	// 1. Start debugger on port 9090
 	startResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "start-debugger",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"port": "9090",
 		},
 	})
@@ -99,7 +99,7 @@ func TestBasic(t *testing.T) {
 	// 2. Execute program
 	execResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "exec-program",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"path": binaryPath,
 		},
 	})
@@ -115,7 +115,7 @@ func TestBasic(t *testing.T) {
 	breakpointFile := filepath.Join(cwd, "testdata", "go", "helloworld", "main.go")
 	setBreakpointResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "set-breakpoints",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"file":  breakpointFile,
 			"lines": []int{7},
 		},
@@ -128,7 +128,7 @@ func TestBasic(t *testing.T) {
 	// 4. Continue execution
 	continueResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "continue",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"threadID": 1,
 		},
 	})
@@ -143,7 +143,7 @@ func TestBasic(t *testing.T) {
 	// 5. Evaluate expression
 	evaluateResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name: "evaluate",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"expression": "greeting",
 			"frameID":    1000,
 			"context":    "repl",
@@ -185,7 +185,7 @@ func TestBasic(t *testing.T) {
 	// 6. Stop debugger
 	stopResult, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "stop-debugger",
-		Arguments: map[string]interface{}{},
+		Arguments: map[string]any{},
 	})
 	if err != nil {
 		t.Fatalf("Failed to stop debugger: %v", err)
