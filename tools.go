@@ -189,12 +189,25 @@ func stopDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolPara
 			Content: []mcp.Content{&mcp.TextContent{Text: "No debugger currently executing."}},
 		}, nil
 	}
+
+	// Close the DAP client connection if it exists
+	if client != nil {
+		client.Close()
+		client = nil
+	}
+
+	// Kill the debugger process
 	if err := cmd.Process.Kill(); err != nil {
-		return nil, err
+		// Ignore the error if the process has already exited
+		if !strings.Contains(err.Error(), "process already finished") {
+			return nil, err
+		}
 	}
-	if err := cmd.Wait(); err != nil {
-		return nil, err
-	}
+
+	// Wait for the process to finish
+	cmd.Wait() // Ignore error as process might have been killed
+	cmd = nil
+
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: "Debugger stopped."}},
 	}, nil
@@ -586,21 +599,34 @@ func evaluateExpression(ctx context.Context, _ *mcp.ServerSession, params *mcp.C
 	if err := client.EvaluateRequest(params.Arguments.Expression, params.Arguments.FrameID, context); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
-	if err != nil {
-		return nil, err
-	}
 
-	if resp, ok := msg.(dap.ResponseMessage); ok {
-		if !resp.GetResponse().Success {
-			return nil, fmt.Errorf("unable to evaluate expression: %s", resp.GetResponse().Message)
+	// Read messages until we get the EvaluateResponse
+	// Events can come at any time, so we need to handle them
+	for {
+		msg, err := client.ReadMessage()
+		if err != nil {
+			return nil, err
 		}
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: "Evaluated expression"}},
-		}, nil
-	}
 
-	return nil, fmt.Errorf("unexpected response type")
+		switch resp := msg.(type) {
+		case *dap.EvaluateResponse:
+			if !resp.Success {
+				return nil, fmt.Errorf("unable to evaluate expression: %s", resp.Message)
+			}
+			result := fmt.Sprintf("%s", resp.Body.Result)
+			if resp.Body.Type != "" {
+				result = fmt.Sprintf("%s (type: %s)", resp.Body.Result, resp.Body.Type)
+			}
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: result}},
+			}, nil
+		case dap.EventMessage:
+			// Ignore events, they can come at any time
+			continue
+		default:
+			return nil, fmt.Errorf("unexpected response type: %T", msg)
+		}
+	}
 }
 
 // SetVariableParams defines the parameters for setting a variable.
