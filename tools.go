@@ -108,28 +108,45 @@ func stopDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolPara
 	}, nil
 }
 
+// DebugProgramParams defines the parameters for starting a debug session.
+// Path is the path to the program you would like to start debugging.
 type DebugProgramParams struct {
 	Path string `json:"path" mcp:"path to the program we want to start debugging."`
 }
 
+// debugProgram starts a debug session for the specified program.
+// It sends a launch request to the DAP server with the given program path,
+// then reads the response to verify the launch was successful.
+// Returns an error if the launch fails or if the DAP server reports failure.
 func debugProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DebugProgramParams]) (*mcp.CallToolResultFor[any], error) {
 	path := params.Arguments.Path
 	if err := client.LaunchRequest("debug", path, true); err != nil {
 		return nil, err
 	}
+	if err := readAndValidateResponse(client, "unable to launch program to debug via DAP server"); err != nil {
+		return nil, err
+	}
+
+	return &mcp.CallToolResultFor[any]{
+		Content: []mcp.Content{&mcp.TextContent{Text: "Started debugging: " + path}},
+	}, nil
+}
+
+// readAndValidateResponse reads a DAP message and validates the response.
+// It returns an error if the read fails or if the response indicates failure.
+// The generic type T allows this function to be used with different response types.
+func readAndValidateResponse(client *DAPClient, errorPrefix string) error {
 	msg, err := client.ReadMessage()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	switch resp := msg.(type) {
 	case dap.ResponseMessage:
 		if !resp.GetResponse().Success {
-			return nil, fmt.Errorf("unable to launch program to debug via DAP server: %s", resp.GetResponse().Message)
+			return fmt.Errorf("%s: %s", errorPrefix, resp.GetResponse().Message)
 		}
 	case dap.EventMessage:
 		// Request was a success
 	}
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Started debugging: " + path}},
-	}, nil
+	return nil
 }
