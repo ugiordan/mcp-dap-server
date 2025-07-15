@@ -501,21 +501,57 @@ func getStackTrace(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallTo
 	if err := client.StackTraceRequest(params.Arguments.ThreadID, params.Arguments.StartFrame, levels); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
-	if err != nil {
-		return nil, err
-	}
 
-	if resp, ok := msg.(dap.ResponseMessage); ok {
-		if !resp.GetResponse().Success {
-			return nil, fmt.Errorf("unable to get stack trace: %s", resp.GetResponse().Message)
+	// Read messages until we get the stack trace response
+	for {
+		msg, err := client.ReadMessage()
+		if err != nil {
+			return nil, err
 		}
-		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: "Retrieved stack trace"}},
-		}, nil
-	}
 
-	return nil, fmt.Errorf("unexpected response type")
+		switch resp := msg.(type) {
+		case *dap.StackTraceResponse:
+			if !resp.Success {
+				return nil, fmt.Errorf("unable to get stack trace: %s", resp.Message)
+			}
+
+			var stackTrace strings.Builder
+			stackTrace.WriteString(fmt.Sprintf("Stack trace for thread %d:\n", params.Arguments.ThreadID))
+
+			for i, frame := range resp.Body.StackFrames {
+				stackTrace.WriteString(fmt.Sprintf("\n#%d %s", i, frame.Name))
+				if frame.Source != nil && frame.Source.Path != "" {
+					stackTrace.WriteString(fmt.Sprintf("\n   at %s:%d", frame.Source.Path, frame.Line))
+					if frame.Column > 0 {
+						stackTrace.WriteString(fmt.Sprintf(":%d", frame.Column))
+					}
+				}
+				if frame.PresentationHint == "subtle" {
+					stackTrace.WriteString(" (runtime)")
+				}
+				stackTrace.WriteString("\n")
+			}
+
+			stackTrace.WriteString(fmt.Sprintf("\nTotal frames: %d", resp.Body.TotalFrames))
+
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: stackTrace.String()}},
+			}, nil
+
+		case dap.EventMessage:
+			// Continue looping to wait for StackTraceResponse
+			continue
+
+		case dap.ResponseMessage:
+			if !resp.GetResponse().Success {
+				return nil, fmt.Errorf("unable to get stack trace: %s", resp.GetResponse().Message)
+			}
+			return nil, fmt.Errorf("received generic response instead of StackTraceResponse")
+
+		default:
+			return nil, fmt.Errorf("unexpected response type: %T", msg)
+		}
+	}
 }
 
 // ScopesParams defines the parameters for getting scopes.
