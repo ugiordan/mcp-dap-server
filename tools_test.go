@@ -14,16 +14,23 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestBasic(t *testing.T) {
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get current working directory: %v", err)
-	}
+// testSetup holds the common test infrastructure
+type testSetup struct {
+	cwd        string
+	binaryPath string
+	server     *mcp.Server
+	testServer *httptest.Server
+	client     *mcp.Client
+	session    *mcp.ClientSession
+	ctx        context.Context
+}
 
-	// Compile the test program
+// compileTestProgram compiles the test Go program and returns the binary path
+func compileTestProgram(t *testing.T, cwd string) (binaryPath string, cleanup func()) {
+	t.Helper()
+
 	programPath := filepath.Join(cwd, "testdata", "go", "helloworld")
-	binaryPath := filepath.Join(programPath, "helloworld")
+	binaryPath = filepath.Join(programPath, "helloworld")
 
 	// Remove old binary if exists
 	os.Remove(binaryPath)
@@ -35,7 +42,23 @@ func TestBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to compile program: %v\nOutput: %s", err, output)
 	}
-	defer os.Remove(binaryPath) // Clean up after test
+
+	cleanup = func() {
+		os.Remove(binaryPath)
+	}
+
+	return binaryPath, cleanup
+}
+
+// setupMCPServerAndClient creates and connects MCP server and client
+func setupMCPServerAndClient(t *testing.T) *testSetup {
+	t.Helper()
+
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current working directory: %v", err)
+	}
 
 	// Create MCP server
 	implementation := mcp.Implementation{
@@ -51,7 +74,6 @@ func TestBasic(t *testing.T) {
 	}
 	sseHandler := mcp.NewSSEHandler(getServer)
 	testServer := httptest.NewServer(sseHandler)
-	defer testServer.Close()
 
 	// Create MCP client
 	clientImplementation := mcp.Implementation{
@@ -67,14 +89,36 @@ func TestBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect client to server: %v", err)
 	}
-	defer session.Close()
 
-	// Execute tool calls
-	// 1. Start debugger on port 9090
-	startResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+	return &testSetup{
+		cwd:        cwd,
+		server:     server,
+		testServer: testServer,
+		client:     client,
+		session:    session,
+		ctx:        ctx,
+	}
+}
+
+// cleanup closes all resources
+func (ts *testSetup) cleanup() {
+	if ts.session != nil {
+		ts.session.Close()
+	}
+	if ts.testServer != nil {
+		ts.testServer.Close()
+	}
+}
+
+// startDebuggerAndExecuteProgram starts the debugger and executes the test program
+func (ts *testSetup) startDebuggerAndExecuteProgram(t *testing.T, port string, binaryPath string) {
+	t.Helper()
+
+	// Start debugger
+	startResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "start-debugger",
 		Arguments: map[string]any{
-			"port": "9090",
+			"port": port,
 		},
 	})
 	if err != nil {
@@ -96,8 +140,8 @@ func TestBasic(t *testing.T) {
 	// Give debugger time to start
 	time.Sleep(2 * time.Second)
 
-	// 2. Execute program
-	execResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+	// Execute program
+	execResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "exec-program",
 		Arguments: map[string]any{
 			"path": binaryPath,
@@ -110,10 +154,15 @@ func TestBasic(t *testing.T) {
 
 	// Give program time to start
 	time.Sleep(1 * time.Second)
+}
 
-	// 3. Set breakpoint
-	breakpointFile := filepath.Join(cwd, "testdata", "go", "helloworld", "main.go")
-	setBreakpointResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+// setBreakpointAndContinue sets a breakpoint and continues execution
+func (ts *testSetup) setBreakpointAndContinue(t *testing.T) {
+	t.Helper()
+
+	// Set breakpoint
+	breakpointFile := filepath.Join(ts.cwd, "testdata", "go", "helloworld", "main.go")
+	setBreakpointResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "set-breakpoints",
 		Arguments: map[string]any{
 			"file":  breakpointFile,
@@ -125,8 +174,8 @@ func TestBasic(t *testing.T) {
 	}
 	t.Logf("Set breakpoint result: %v", setBreakpointResult)
 
-	// 4. Continue execution
-	continueResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+	// Continue execution
+	continueResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "continue",
 		Arguments: map[string]any{
 			"threadID": 1,
@@ -139,9 +188,13 @@ func TestBasic(t *testing.T) {
 
 	// Give time for breakpoint to hit
 	time.Sleep(1 * time.Second)
+}
 
-	// 5. Get stacktrace
-	stacktraceResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+// getStackTraceContent gets stacktrace and returns the content as a string
+func (ts *testSetup) getStackTraceContent(t *testing.T) string {
+	t.Helper()
+
+	stacktraceResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "stack-trace",
 		Arguments: map[string]any{
 			"threadID": 1,
@@ -168,7 +221,7 @@ func TestBasic(t *testing.T) {
 		t.Fatalf("Expected stacktrace frames, got empty content")
 	}
 
-	// Verify stacktrace contains expected information
+	// Extract stacktrace content
 	stacktraceStr := ""
 	for _, content := range stacktraceResult.Content {
 		if textContent, ok := content.(*mcp.TextContent); ok {
@@ -176,18 +229,52 @@ func TestBasic(t *testing.T) {
 		}
 	}
 
-	// Check for main function in stacktrace
+	return stacktraceStr
+}
+
+// stopDebugger stops the debugger
+func (ts *testSetup) stopDebugger(t *testing.T) {
+	t.Helper()
+
+	stopResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name:      "stop-debugger",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("Failed to stop debugger: %v", err)
+	}
+	t.Logf("Stop debugger result: %v", stopResult)
+}
+
+func TestBasic(t *testing.T) {
+	// Setup test infrastructure
+	ts := setupMCPServerAndClient(t)
+	defer ts.cleanup()
+
+	// Compile test program
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd)
+	defer cleanupBinary()
+
+	// Start debugger and execute program
+	ts.startDebuggerAndExecuteProgram(t, "9090", binaryPath)
+
+	// Set breakpoint and continue
+	ts.setBreakpointAndContinue(t)
+
+	// Get stacktrace
+	stacktraceStr := ts.getStackTraceContent(t)
+
+	// Verify stacktrace contains expected information
 	if !strings.Contains(stacktraceStr, "main.main") {
 		t.Errorf("Expected stacktrace to contain 'main.main', got: %s", stacktraceStr)
 	}
 
-	// Check for correct file path
 	if !strings.Contains(stacktraceStr, "main.go") {
 		t.Errorf("Expected stacktrace to contain 'main.go', got: %s", stacktraceStr)
 	}
 
-	// 6. Evaluate expression
-	evaluateResult, err := session.CallTool(ctx, &mcp.CallToolParams{
+	// Evaluate expression
+	evaluateResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "evaluate",
 		Arguments: map[string]any{
 			"expression": "greeting",
@@ -228,161 +315,27 @@ func TestBasic(t *testing.T) {
 		t.Errorf("Expected evaluation to contain 'hello, world', got: %s", resultStr)
 	}
 
-	// 7. Stop debugger
-	stopResult, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "stop-debugger",
-		Arguments: map[string]any{},
-	})
-	if err != nil {
-		t.Fatalf("Failed to stop debugger: %v", err)
-	}
-	t.Logf("Stop debugger result: %v", stopResult)
+	// Stop debugger
+	ts.stopDebugger(t)
 }
 
 func TestStacktrace(t *testing.T) {
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get current working directory: %v", err)
-	}
+	// Setup test infrastructure
+	ts := setupMCPServerAndClient(t)
+	defer ts.cleanup()
 
-	// Compile the test program
-	programPath := filepath.Join(cwd, "testdata", "go", "helloworld")
-	binaryPath := filepath.Join(programPath, "helloworld")
+	// Compile test program
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd)
+	defer cleanupBinary()
 
-	// Remove old binary if exists
-	os.Remove(binaryPath)
+	// Start debugger and execute program
+	ts.startDebuggerAndExecuteProgram(t, "9091", binaryPath)
 
-	// Compile with debugging flags
-	cmd := exec.Command("go", "build", "-gcflags=all=-N -l", "-o", binaryPath, ".")
-	cmd.Dir = programPath
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to compile program: %v\nOutput: %s", err, output)
-	}
-	defer os.Remove(binaryPath) // Clean up after test
-
-	// Create MCP server
-	implementation := mcp.Implementation{
-		Name:    "mcp-dap-server",
-		Version: "v1.0.0",
-	}
-	server := mcp.NewServer(&implementation, nil)
-	registerTools(server)
-
-	// Create httptest server
-	getServer := func(request *http.Request) *mcp.Server {
-		return server
-	}
-	sseHandler := mcp.NewSSEHandler(getServer)
-	testServer := httptest.NewServer(sseHandler)
-	defer testServer.Close()
-
-	// Create MCP client
-	clientImplementation := mcp.Implementation{
-		Name:    "test-client",
-		Version: "v1.0.0",
-	}
-	client := mcp.NewClient(&clientImplementation, nil)
-
-	// Connect client to server
-	ctx := context.Background()
-	transport := mcp.NewSSEClientTransport(testServer.URL, &mcp.SSEClientTransportOptions{})
-	session, err := client.Connect(ctx, transport)
-	if err != nil {
-		t.Fatalf("Failed to connect client to server: %v", err)
-	}
-	defer session.Close()
-
-	// Start debugger
-	_, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "start-debugger",
-		Arguments: map[string]any{
-			"port": "9091",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Failed to start debugger: %v", err)
-	}
-
-	// Give debugger time to start
-	time.Sleep(2 * time.Second)
-
-	// Execute program
-	_, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "exec-program",
-		Arguments: map[string]any{
-			"path": binaryPath,
-		},
-	})
-	if err != nil {
-		t.Fatalf("Failed to execute program: %v", err)
-	}
-
-	// Give program time to start
-	time.Sleep(1 * time.Second)
-
-	// Set breakpoint
-	breakpointFile := filepath.Join(cwd, "testdata", "go", "helloworld", "main.go")
-	_, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "set-breakpoints",
-		Arguments: map[string]any{
-			"file":  breakpointFile,
-			"lines": []int{7},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Failed to set breakpoint: %v", err)
-	}
-
-	// Continue execution
-	_, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "continue",
-		Arguments: map[string]any{
-			"threadID": 1,
-		},
-	})
-	if err != nil {
-		t.Fatalf("Failed to continue execution: %v", err)
-	}
-
-	// Give time for breakpoint to hit
-	time.Sleep(1 * time.Second)
+	// Set breakpoint and continue
+	ts.setBreakpointAndContinue(t)
 
 	// Get stacktrace
-	stacktraceResult, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "stack-trace",
-		Arguments: map[string]any{
-			"threadID": 1,
-		},
-	})
-	if err != nil {
-		t.Fatalf("Failed to get stacktrace: %v", err)
-	}
-
-	// Check if stacktrace returned an error
-	if stacktraceResult.IsError {
-		errorMsg := "Unknown error"
-		if len(stacktraceResult.Content) > 0 {
-			if textContent, ok := stacktraceResult.Content[0].(*mcp.TextContent); ok {
-				errorMsg = textContent.Text
-			}
-		}
-		t.Fatalf("Stacktrace returned error: %s", errorMsg)
-	}
-
-	// Verify we got stack frames
-	if len(stacktraceResult.Content) == 0 {
-		t.Fatalf("Expected stacktrace frames, got empty content")
-	}
-
-	// Extract and log the stacktrace
-	stacktraceStr := ""
-	for _, content := range stacktraceResult.Content {
-		if textContent, ok := content.(*mcp.TextContent); ok {
-			stacktraceStr += textContent.Text
-		}
-	}
+	stacktraceStr := ts.getStackTraceContent(t)
 
 	t.Logf("Stacktrace output:\n%s", stacktraceStr)
 
@@ -408,11 +361,5 @@ func TestStacktrace(t *testing.T) {
 	}
 
 	// Stop debugger
-	_, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "stop-debugger",
-		Arguments: map[string]any{},
-	})
-	if err != nil {
-		t.Fatalf("Failed to stop debugger: %v", err)
-	}
+	ts.stopDebugger(t)
 }
