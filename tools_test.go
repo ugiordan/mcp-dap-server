@@ -310,6 +310,9 @@ func TestBasic(t *testing.T) {
 }
 
 func TestRestart(t *testing.T) {
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Skip("Skipping test in Github CI: relies on unreleased feature of Delve DAP server.")
+	}
 	// Setup test infrastructure
 	ts := setupMCPServerAndClient(t)
 	defer ts.cleanup()
