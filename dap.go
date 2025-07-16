@@ -227,9 +227,12 @@ func (c *DAPClient) SetVariableRequest(variablesRef int, name, value string) err
 	return c.send(request)
 }
 
-// RestartRequest sends a 'restart' request.
-func (c *DAPClient) RestartRequest() error {
+// RestartRequest sends a 'restart' request with specified arguments, if provided.
+func (c *DAPClient) RestartRequest(arguments map[string]any) error {
 	request := &dap.RestartRequest{Request: *c.newRequest("restart")}
+	if arguments != nil {
+		request.Arguments = toRawMessage(arguments)
+	}
 	return c.send(request)
 }
 

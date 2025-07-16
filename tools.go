@@ -719,14 +719,19 @@ func setVariable(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallTool
 
 // RestartParams defines the parameters for restarting the debugger.
 type RestartParams struct {
+	Args []string `json:"args,omitempty" mcp:"new command line arguments for the program upon restart, or empty to reuse previous arguments"`
 }
 
 // restartDebugger restarts the debugging session.
-func restartDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[RestartParams]) (*mcp.CallToolResultFor[any], error) {
+func restartDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[RestartParams]) (*mcp.CallToolResultFor[any], error) {
 	if client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.RestartRequest(); err != nil {
+	if err := client.RestartRequest(map[string]any{
+		"arguments": map[string]any{
+			"args": params.Arguments.Args,
+		},
+	}); err != nil {
 		return nil, err
 	}
 	if err := readAndValidateResponse(client, "unable to restart debugger"); err != nil {
