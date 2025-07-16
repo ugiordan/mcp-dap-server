@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,7 +36,7 @@ func registerTools(server *mcp.Server) {
 	}, debugProgram)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "exec-program",
-		Description: "Tells the debugger running via DAP to debug a local program that has already been compiled.",
+		Description: "Tells the debugger running via DAP to debug a local program that has already been compiled. The path to the program must be an absolute path, or the program must be in $PATH.",
 	}, execProgram)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set-breakpoints",
@@ -306,12 +307,27 @@ func setBreakpoints(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallT
 	if err := client.SetBreakpointsRequest(params.Arguments.File, params.Arguments.Lines); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to set breakpoints"); err != nil {
+	msg, err := client.ReadMessage()
+	if err != nil {
 		return nil, err
+	}
+	response, ok := msg.(*dap.SetBreakpointsResponse)
+	if !ok {
+		return nil, errors.New("unexpected DAP response from set breakpoints request")
+	}
+	var breakpoints strings.Builder
+	for _, bp := range response.Body.Breakpoints {
+		breakpoints.WriteString("Breakpoint ")
+		if bp.Verified {
+			breakpoints.WriteString(fmt.Sprintf("created at %s:%d with ID %d", bp.Source.Path, bp.Line, bp.Id))
+		} else {
+			breakpoints.WriteString("unable to be created: ")
+			breakpoints.WriteString(bp.Message)
+		}
 	}
 
 	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Set %d breakpoints in %s", len(params.Arguments.Lines), params.Arguments.File)}},
+		Content: []mcp.Content{&mcp.TextContent{Text: breakpoints.String()}},
 	}, nil
 }
 
@@ -371,13 +387,38 @@ func continueExecution(ctx context.Context, _ *mcp.ServerSession, params *mcp.Ca
 	if err := client.ContinueRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to continue execution"); err != nil {
-		return nil, err
+	for {
+		msg, err := client.ReadMessage()
+		if err != nil {
+			return nil, err
+		}
+		switch resp := msg.(type) {
+		case dap.ResponseMessage:
+			if !resp.GetResponse().Success {
+				return nil, fmt.Errorf("%s: %s", "unable to continue", resp.GetResponse().Message)
+			}
+		case *dap.StoppedEvent:
+			msg := resp.Body
+			var response string
+			response = formatStoppedResponse(msg)
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Continued execution...\n" + response}},
+			}, nil
+		case *dap.TerminatedEvent:
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Continued execution to program termination"}},
+			}, nil
+		}
 	}
+}
 
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Continued execution"}},
-	}, nil
+func formatStoppedResponse(msg dap.StoppedEventBody) string {
+	switch msg.Reason {
+	case "breakpoint", "function breakpoint":
+		return fmt.Sprintf("Program stopped as a result of hitting breakpoint %d hit by thread %d", msg.HitBreakpointIds[0], msg.ThreadId)
+
+	}
+	return "Program stopped for unknown reason."
 }
 
 // NextParams defines the parameters for stepping to the next line.
