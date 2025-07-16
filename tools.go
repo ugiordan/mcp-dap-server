@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -164,14 +165,33 @@ func startDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallTo
 	if err := client.InitializeRequest(); err != nil {
 		return nil, err
 	}
-	// TODO(deparker): read response to discovery server capabilities
-	_, err = client.ReadMessage()
+	// Read response to discover server capabilities
+	msg, err := client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
 
+	// Extract capabilities from InitializeResponse
+	var capabilities dap.Capabilities
+	switch resp := msg.(type) {
+	case *dap.InitializeResponse:
+		capabilities = resp.Body
+	default:
+		return nil, fmt.Errorf("unexpected response type: %T", msg)
+	}
+
+	// Marshal capabilities to JSON for better readability
+	capabilitiesJSON, err := json.MarshalIndent(capabilities, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal capabilities: %w", err)
+	}
+
 	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Started debugger at: " + port}},
+		Content: []mcp.Content{
+			&mcp.TextContent{
+				Text: fmt.Sprintf("Started debugger at: %s\n\nServer Capabilities:\n%s", port, string(capabilitiesJSON)),
+			},
+		},
 	}, nil
 }
 
