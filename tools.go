@@ -311,24 +311,27 @@ func setBreakpoints(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallT
 	if err != nil {
 		return nil, err
 	}
-	response, ok := msg.(*dap.SetBreakpointsResponse)
-	if !ok {
+	switch response := msg.(type) {
+	case *dap.SetBreakpointsResponse:
+		var breakpoints strings.Builder
+		for _, bp := range response.Body.Breakpoints {
+			breakpoints.WriteString("Breakpoint ")
+			if bp.Verified {
+				breakpoints.WriteString(fmt.Sprintf("created at %s:%d with ID %d", bp.Source.Path, bp.Line, bp.Id))
+			} else {
+				breakpoints.WriteString("unable to be created: ")
+				breakpoints.WriteString(bp.Message)
+			}
+		}
+
+		return &mcp.CallToolResultFor[any]{
+			Content: []mcp.Content{&mcp.TextContent{Text: breakpoints.String()}},
+		}, nil
+	case *dap.ErrorResponse:
+		return nil, errors.New(response.Message)
+	default:
 		return nil, errors.New("unexpected DAP response from set breakpoints request")
 	}
-	var breakpoints strings.Builder
-	for _, bp := range response.Body.Breakpoints {
-		breakpoints.WriteString("Breakpoint ")
-		if bp.Verified {
-			breakpoints.WriteString(fmt.Sprintf("created at %s:%d with ID %d", bp.Source.Path, bp.Line, bp.Id))
-		} else {
-			breakpoints.WriteString("unable to be created: ")
-			breakpoints.WriteString(bp.Message)
-		}
-	}
-
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: breakpoints.String()}},
-	}, nil
 }
 
 // SetFunctionBreakpointsParams defines the parameters for setting function breakpoints.
@@ -770,7 +773,10 @@ func restartDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.Call
 	}
 	if err := client.RestartRequest(map[string]any{
 		"arguments": map[string]any{
-			"args": params.Arguments.Args,
+			"request":     "launch",
+			"mode":        "exec",
+			"stopOnEntry": false,
+			"args":        params.Arguments.Args,
 		},
 	}); err != nil {
 		return nil, err

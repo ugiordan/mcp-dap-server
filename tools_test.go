@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -26,11 +25,11 @@ type testSetup struct {
 }
 
 // compileTestProgram compiles the test Go program and returns the binary path
-func compileTestProgram(t *testing.T, cwd string) (binaryPath string, cleanup func()) {
+func compileTestProgram(t *testing.T, cwd, name string) (binaryPath string, cleanup func()) {
 	t.Helper()
 
-	programPath := filepath.Join(cwd, "testdata", "go", "helloworld")
-	binaryPath = filepath.Join(programPath, "helloworld")
+	programPath := filepath.Join(cwd, "testdata", "go", name)
+	binaryPath = filepath.Join(programPath, "debugprog")
 
 	// Remove old binary if exists
 	os.Remove(binaryPath)
@@ -137,9 +136,6 @@ func (ts *testSetup) startDebuggerAndExecuteProgram(t *testing.T, port string, b
 		t.Fatalf("Start debugger returned error: %s", errorMsg)
 	}
 
-	// Give debugger time to start
-	time.Sleep(2 * time.Second)
-
 	// Execute program
 	execResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "exec-program",
@@ -151,22 +147,18 @@ func (ts *testSetup) startDebuggerAndExecuteProgram(t *testing.T, port string, b
 		t.Fatalf("Failed to execute program: %v", err)
 	}
 	t.Logf("Execute program result: %v", execResult)
-
-	// Give program time to start
-	time.Sleep(1 * time.Second)
 }
 
 // setBreakpointAndContinue sets a breakpoint and continues execution
-func (ts *testSetup) setBreakpointAndContinue(t *testing.T) {
+func (ts *testSetup) setBreakpointAndContinue(t *testing.T, file string, line int) {
 	t.Helper()
 
 	// Set breakpoint
-	breakpointFile := filepath.Join(ts.cwd, "testdata", "go", "helloworld", "main.go")
 	setBreakpointResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
 		Name: "set-breakpoints",
 		Arguments: map[string]any{
-			"file":  breakpointFile,
-			"lines": []int{7},
+			"file":  file,
+			"lines": []int{line},
 		},
 	})
 	if err != nil {
@@ -185,9 +177,6 @@ func (ts *testSetup) setBreakpointAndContinue(t *testing.T) {
 		t.Fatalf("Failed to continue execution: %v", err)
 	}
 	t.Logf("Continue result: %v", continueResult)
-
-	// Give time for breakpoint to hit
-	time.Sleep(1 * time.Second)
 }
 
 // getStackTraceContent gets stacktrace and returns the content as a string
@@ -252,14 +241,15 @@ func TestBasic(t *testing.T) {
 	defer ts.cleanup()
 
 	// Compile test program
-	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd)
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd, "helloworld")
 	defer cleanupBinary()
 
 	// Start debugger and execute program
 	ts.startDebuggerAndExecuteProgram(t, "9090", binaryPath)
 
 	// Set breakpoint and continue
-	ts.setBreakpointAndContinue(t)
+	f := filepath.Join(ts.cwd, "testdata", "go", "helloworld", "main.go")
+	ts.setBreakpointAndContinue(t, f, 7)
 
 	// Get stacktrace
 	stacktraceStr := ts.getStackTraceContent(t)
@@ -319,20 +309,108 @@ func TestBasic(t *testing.T) {
 	ts.stopDebugger(t)
 }
 
+func TestRestart(t *testing.T) {
+	// Setup test infrastructure
+	ts := setupMCPServerAndClient(t)
+	defer ts.cleanup()
+
+	// Compile test program
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd, "restart")
+	defer cleanupBinary()
+
+	// Start debugger and execute program
+	ts.startDebuggerAndExecuteProgram(t, "9092", binaryPath)
+
+	// Set breakpoint and continue
+	f := filepath.Join(ts.cwd, "testdata", "go", "restart", "main.go")
+	ts.setBreakpointAndContinue(t, f, 15)
+
+	// Restart debugger
+	restartResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "restart",
+		Arguments: map[string]any{
+			"args": []string{"me, its me again"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to restart debugger: %v", err)
+	}
+	t.Logf("Restart result: %v", restartResult)
+
+	// Check if restart returned an error
+	if restartResult.IsError {
+		errorMsg := "Unknown error"
+		if len(restartResult.Content) > 0 {
+			if textContent, ok := restartResult.Content[0].(*mcp.TextContent); ok {
+				errorMsg = textContent.Text
+			}
+		}
+		t.Fatalf("Restart returned error: %s", errorMsg)
+	}
+
+	// Continue to hit the breakpoint again
+	continueResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "continue",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to continue after restart: %v", err)
+	}
+	t.Logf("Continue after restart result: %v", continueResult)
+
+	// Get stacktrace again to verify we're at the breakpoint after restart
+	stacktraceStr2 := ts.getStackTraceContent(t)
+	if !strings.Contains(stacktraceStr2, "main.go:15") {
+		t.Errorf("Expected to be at breakpoint main.go:15 after restart, got: %s", stacktraceStr2)
+	}
+
+	// Evaluate greeting variable again to ensure it's a fresh run
+	evaluateResult2, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "evaluate",
+		Arguments: map[string]any{
+			"expression": "greeting",
+			"frameID":    1000,
+			"context":    "repl",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to evaluate expression after restart: %v", err)
+	}
+	t.Logf("Evaluate after restart result: %v", evaluateResult2)
+
+	// Verify the evaluation result still contains "hello, world"
+	resultStr := ""
+	for _, content := range evaluateResult2.Content {
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			resultStr += textContent.Text
+		}
+	}
+
+	if !strings.Contains(resultStr, "hello me, its me again") {
+		t.Errorf("Expected evaluation after restart to contain 'hello, world', got: %s", resultStr)
+	}
+
+	// Stop debugger
+	ts.stopDebugger(t)
+}
+
 func TestStacktrace(t *testing.T) {
 	// Setup test infrastructure
 	ts := setupMCPServerAndClient(t)
 	defer ts.cleanup()
 
 	// Compile test program
-	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd)
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd, "helloworld")
 	defer cleanupBinary()
 
 	// Start debugger and execute program
 	ts.startDebuggerAndExecuteProgram(t, "9091", binaryPath)
 
 	// Set breakpoint and continue
-	ts.setBreakpointAndContinue(t)
+	f := filepath.Join(ts.cwd, "testdata", "go", "helloworld", "main.go")
+	ts.setBreakpointAndContinue(t, f, 7)
 
 	// Get stacktrace
 	stacktraceStr := ts.getStackTraceContent(t)
