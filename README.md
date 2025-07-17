@@ -67,6 +67,8 @@ Configure your MCP client to connect to the server at `http://localhost:8080` us
 
 ### Example MCP Client Configuration
 
+This configuration should work (or serve as a starting point) for Agents such as (Gemini CLI)[https://developers.google.com/gemini-code-assist/docs/use-agentic-chat-pair-programmer#configure-mcp-servers].
+
 ```json
 {
   "mcpServers": {
@@ -77,6 +79,14 @@ Configure your MCP client to connect to the server at `http://localhost:8080` us
     }
   }
 }
+```
+
+### Example configuration using Claude Code
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)
+
+```
+claude mcp add --transport sse mcp-dap-server http://localhost:8080
 ```
 
 ## Available Tools
