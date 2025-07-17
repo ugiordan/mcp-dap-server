@@ -624,6 +624,12 @@ type ScopesParams struct {
 }
 
 // getScopes gets the scopes for a stack frame.
+// It retrieves all available scopes (e.g., Locals, Arguments, Globals) for the specified frame
+// and automatically fetches the variables within each scope.
+// The response includes:
+// - Scope names and their variable references
+// - All variables within each scope with their names, types, and values
+// Returns a formatted text representation of the scopes and their variables.
 func getScopes(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ScopesParams]) (*mcp.CallToolResultFor[any], error) {
 	if client == nil {
 		return nil, fmt.Errorf("debugger not started")
@@ -636,12 +642,43 @@ func getScopes(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolPa
 		return nil, err
 	}
 
-	if resp, ok := msg.(dap.ResponseMessage); ok {
-		if !resp.GetResponse().Success {
-			return nil, fmt.Errorf("unable to get scopes: %s", resp.GetResponse().Message)
+	if resp, ok := msg.(*dap.ScopesResponse); ok {
+		if !resp.Success {
+			return nil, fmt.Errorf("unable to get scopes: %s", resp.Message)
 		}
+
+		var result strings.Builder
+		result.WriteString(fmt.Sprintf("Scopes for frame %d:\n", params.Arguments.FrameID))
+
+		for _, scope := range resp.Body.Scopes {
+			result.WriteString(fmt.Sprintf("\n%s (ref: %d", scope.Name, scope.VariablesReference))
+			if scope.Expensive {
+				result.WriteString(", expensive")
+			}
+			result.WriteString(")\n")
+
+			// If the scope has variables, we can fetch them
+			if scope.VariablesReference > 0 {
+				// Request variables for this scope
+				if err := client.VariablesRequest(scope.VariablesReference); err == nil {
+					if varMsg, err := client.ReadMessage(); err == nil {
+						if varResp, ok := varMsg.(*dap.VariablesResponse); ok && varResp.Success {
+							// Format variables
+							for _, variable := range varResp.Body.Variables {
+								result.WriteString(fmt.Sprintf("  %s", variable.Name))
+								if variable.Type != "" {
+									result.WriteString(fmt.Sprintf(" (%s)", variable.Type))
+								}
+								result.WriteString(fmt.Sprintf(" = %s\n", variable.Value))
+							}
+						}
+					}
+				}
+			}
+		}
+
 		return &mcp.CallToolResultFor[any]{
-			Content: []mcp.Content{&mcp.TextContent{Text: "Retrieved scopes"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: result.String()}},
 		}, nil
 	}
 

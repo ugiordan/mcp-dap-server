@@ -178,9 +178,13 @@ Gets the stack trace for a thread.
   - `levels` (number, optional): Number of frames to retrieve
 
 #### `scopes`
-Gets variable scopes for a stack frame.
+Gets variable scopes for a stack frame and automatically fetches all variables within each scope.
 - **Parameters**:
   - `frameId` (number): Stack frame ID
+- **Returns**: A formatted display showing:
+  - All available scopes (Locals, Arguments, Globals, etc.)
+  - Variables within each scope with their names, types, and values
+  - Variable references for compound types that can be further inspected
 
 #### `variables`
 Gets variables in a scope.

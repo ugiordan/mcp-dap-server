@@ -444,3 +444,282 @@ func TestStacktrace(t *testing.T) {
 	// Stop debugger
 	ts.stopDebugger(t)
 }
+
+func TestScopes(t *testing.T) {
+	// Setup test infrastructure
+	ts := setupMCPServerAndClient(t)
+	defer ts.cleanup()
+
+	// Compile test program
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd, "helloworld")
+	defer cleanupBinary()
+
+	// Start debugger and execute program
+	ts.startDebuggerAndExecuteProgram(t, "9093", binaryPath)
+
+	// Set breakpoint and continue
+	f := filepath.Join(ts.cwd, "testdata", "go", "helloworld", "main.go")
+	ts.setBreakpointAndContinue(t, f, 7)
+
+	// Get stacktrace first to ensure we have valid frame IDs
+	stacktraceResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "stack-trace",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stacktrace: %v", err)
+	}
+	t.Logf("Stacktrace result: %v", stacktraceResult)
+
+	// Test getting scopes for frame ID 1000 (the topmost frame)
+	scopesResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "scopes",
+		Arguments: map[string]any{
+			"frameId": 1000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get scopes: %v", err)
+	}
+	t.Logf("Scopes result: %v", scopesResult)
+
+	// Check if scopes returned an error
+	if scopesResult.IsError {
+		errorMsg := "Unknown error"
+		if len(scopesResult.Content) > 0 {
+			if textContent, ok := scopesResult.Content[0].(*mcp.TextContent); ok {
+				errorMsg = textContent.Text
+			}
+		}
+		t.Fatalf("Scopes returned error: %s", errorMsg)
+	}
+
+	// Verify we got scopes data
+	if len(scopesResult.Content) == 0 {
+		t.Fatalf("Expected scopes data, got empty content")
+	}
+
+	// Extract scopes content
+	scopesStr := ""
+	for _, content := range scopesResult.Content {
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			scopesStr += textContent.Text
+		}
+	}
+
+	t.Logf("Scopes output:\n%s", scopesStr)
+
+	// Verify scopes contains expected information
+	// For the helloworld program at line 7, we should have locals scope
+	if !strings.Contains(scopesStr, "Locals") {
+		t.Errorf("Expected scopes to contain 'Locals', got: %s", scopesStr)
+	}
+
+	// The greeting variable should be in the locals scope
+	if !strings.Contains(scopesStr, "greeting") {
+		t.Errorf("Expected scopes to contain 'greeting' variable, got: %s", scopesStr)
+	}
+
+	// Stop debugger
+	ts.stopDebugger(t)
+}
+
+func TestScopesComprehensive(t *testing.T) {
+	// Setup test infrastructure
+	ts := setupMCPServerAndClient(t)
+	defer ts.cleanup()
+
+	// Compile test program
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd, "scopes")
+	defer cleanupBinary()
+
+	// Start debugger and execute program
+	ts.startDebuggerAndExecuteProgram(t, "9094", binaryPath)
+
+	// Set all breakpoints at once
+	f := filepath.Join(ts.cwd, "testdata", "go", "scopes", "main.go")
+
+	// Set breakpoint in greet function at line 42
+	setBreakpointResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "set-breakpoints",
+		Arguments: map[string]any{
+			"file":  f,
+			"lines": []int{42, 54, 67},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to set breakpoints: %v", err)
+	}
+	t.Logf("Set breakpoints result: %v", setBreakpointResult)
+
+	// Continue to first breakpoint
+	_, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "continue",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to continue: %v", err)
+	}
+
+	// Get stacktrace to ensure we have valid frame IDs
+	_, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "stack-trace",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stacktrace: %v", err)
+	}
+
+	// Get scopes for the greet function frame
+	scopesResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "scopes",
+		Arguments: map[string]any{
+			"frameId": 1000, // topmost frame (greet function)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get scopes: %v", err)
+	}
+
+	scopesStr := ""
+	for _, content := range scopesResult.Content {
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			scopesStr += textContent.Text
+		}
+	}
+	t.Logf("Scopes in greet function:\n%s", scopesStr)
+
+	// Verify function arguments
+	if !strings.Contains(scopesStr, "name") || !strings.Contains(scopesStr, "\"Alice\"") {
+		t.Errorf("Expected to find argument 'name' with value 'Alice'")
+	}
+	if !strings.Contains(scopesStr, "age") || !strings.Contains(scopesStr, "30") {
+		t.Errorf("Expected to find argument 'age' with value 30")
+	}
+
+	// Verify local variables
+	if !strings.Contains(scopesStr, "greeting") {
+		t.Errorf("Expected to find local variable 'greeting'")
+	}
+	if !strings.Contains(scopesStr, "prefix") && !strings.Contains(scopesStr, "Greeting: ") {
+		t.Errorf("Expected to find local variable 'prefix' with value 'Greeting: '")
+	}
+
+	// Test 2: Struct parameter and local variables
+	// Continue to next breakpoint in processPerson at line 54
+	_, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "continue",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to continue: %v", err)
+	}
+
+	// Get stack trace for processPerson function
+	_, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "stack-trace",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stacktrace: %v", err)
+	}
+
+	// Get scopes for processPerson function
+	scopesResult2, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "scopes",
+		Arguments: map[string]any{
+			"frameId": 1000, // topmost frame (processPerson function)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get scopes: %v", err)
+	}
+
+	scopesStr2 := ""
+	for _, content := range scopesResult2.Content {
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			scopesStr2 += textContent.Text
+		}
+	}
+	t.Logf("Scopes in processPerson function:\n%s", scopesStr2)
+
+	// Verify struct parameter
+	if !strings.Contains(scopesStr2, "p") {
+		t.Errorf("Expected to find parameter 'p' (Person struct)")
+	}
+	if !strings.Contains(scopesStr2, "description") {
+		t.Errorf("Expected to find local variable 'description'")
+	}
+	if !strings.Contains(scopesStr2, "isAdult") {
+		t.Errorf("Expected to find local variable 'isAdult'")
+	}
+
+	// Test 3: Collection parameters
+	// Continue to next breakpoint in processCollection at line 67
+	_, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "continue",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to continue: %v", err)
+	}
+
+	// Get stack trace for processCollection function
+	_, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "stack-trace",
+		Arguments: map[string]any{
+			"threadID": 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stacktrace: %v", err)
+	}
+
+	// Get scopes for processCollection function
+	scopesResult3, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name: "scopes",
+		Arguments: map[string]any{
+			"frameId": 1000, // topmost frame (processCollection function)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to get scopes: %v", err)
+	}
+
+	scopesStr3 := ""
+	for _, content := range scopesResult3.Content {
+		if textContent, ok := content.(*mcp.TextContent); ok {
+			scopesStr3 += textContent.Text
+		}
+	}
+	t.Logf("Scopes in processCollection function:\n%s", scopesStr3)
+
+	// Verify collection parameters and locals
+	if !strings.Contains(scopesStr3, "nums") {
+		t.Errorf("Expected to find parameter 'nums' (slice)")
+	}
+	if !strings.Contains(scopesStr3, "dict") {
+		t.Errorf("Expected to find parameter 'dict' (map)")
+	}
+	if !strings.Contains(scopesStr3, "sum") {
+		t.Errorf("Expected to find local variable 'sum'")
+	}
+	if !strings.Contains(scopesStr3, "count") {
+		t.Errorf("Expected to find local variable 'count'")
+	}
+
+	// Stop debugger
+	ts.stopDebugger(t)
+}
