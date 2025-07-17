@@ -14,6 +14,12 @@ The MCP DAP Server acts as a bridge between MCP clients and DAP-compatible debug
 - Attach to running processes
 - Handle exceptions
 
+## Demos
+
+- [Basic demo with multiple prompts](https://youtu.be/q0pNfhxWAWk?si=hzJWCyXnNsVKZ3Z4)
+- [Autonomous agentic debugging pt.1](https://youtu.be/k5Z51et_rog?si=Z7VZWK8QQ94Pzptu)
+- [Autonomous agentic debugging pt.2](https://youtu.be/8PcfLbU_EQM?si=I8y_RLjaWeT3B4I8)
+
 ## Features
 
 ### Core Debugging Operations
