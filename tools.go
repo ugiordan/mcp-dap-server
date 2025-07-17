@@ -583,7 +583,7 @@ func getStackTrace(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallTo
 			stackTrace.WriteString(fmt.Sprintf("Stack trace for thread %d:\n", params.Arguments.ThreadID))
 
 			for i, frame := range resp.Body.StackFrames {
-				stackTrace.WriteString(fmt.Sprintf("\n#%d %s", i, frame.Name))
+				stackTrace.WriteString(fmt.Sprintf("\n#%d (Frame ID: %d) %s", i, frame.Id, frame.Name))
 				if frame.Source != nil && frame.Source.Path != "" {
 					stackTrace.WriteString(fmt.Sprintf("\n   at %s:%d", frame.Source.Path, frame.Line))
 					if frame.Column > 0 {
