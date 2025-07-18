@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -718,6 +719,134 @@ func TestScopesComprehensive(t *testing.T) {
 	}
 	if !strings.Contains(scopesStr3, "count") {
 		t.Errorf("Expected to find local variable 'count'")
+	}
+
+	// Stop debugger
+	ts.stopDebugger(t)
+}
+
+func TestNextStep(t *testing.T) {
+	// Setup test infrastructure
+	ts := setupMCPServerAndClient(t)
+	defer ts.cleanup()
+
+	// Compile test program
+	binaryPath, cleanupBinary := compileTestProgram(t, ts.cwd, "step")
+	defer cleanupBinary()
+
+	// Start debugger and execute program
+	ts.startDebuggerAndExecuteProgram(t, "9090", binaryPath)
+
+	// Set breakpoint at line 7 (x := 10)
+	f := filepath.Join(ts.cwd, "testdata", "go", "step", "main.go")
+	ts.setBreakpointAndContinue(t, f, 7)
+
+	// Helper function to perform next step
+	performNextStep := func(threadID int) error {
+		args := map[string]any{
+			"threadId": threadID,
+		}
+		result, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+			Name:      "next",
+			Arguments: args,
+		})
+		if err != nil {
+			return err
+		}
+		// Verify we get a response
+		if len(result.Content) == 0 {
+			return fmt.Errorf("expected content in next step response")
+		}
+		return nil
+	}
+
+	// Get initial stack trace to find thread ID
+	stackTraceArgs := map[string]any{
+		"threadId": 1,
+	}
+	stackTraceResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name:      "stack-trace",
+		Arguments: stackTraceArgs,
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stack trace: %v", err)
+	}
+
+	// Step to line 10 (y := 20)
+	err = performNextStep(1)
+	if err != nil {
+		t.Fatalf("Failed to perform next step: %v", err)
+	}
+
+	// Get stack trace to verify we're at line 10
+	stackTraceResult, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name:      "stack-trace",
+		Arguments: stackTraceArgs,
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stack trace after next: %v", err)
+	}
+	stacktraceStr := stackTraceResult.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(stacktraceStr, "main.go:10") {
+		t.Errorf("Expected to be at line 10 after next step, got: %s", stacktraceStr)
+	}
+
+	// Step to line 13 (sum := x + y)
+	err = performNextStep(1)
+	if err != nil {
+		t.Fatalf("Failed to perform second next step: %v", err)
+	}
+
+	// Verify we're at line 13
+	stackTraceResult, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name:      "stack-trace",
+		Arguments: stackTraceArgs,
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stack trace after second next: %v", err)
+	}
+	stacktraceStr = stackTraceResult.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(stacktraceStr, "main.go:13") {
+		t.Errorf("Expected to be at line 13 after second next step, got: %s", stacktraceStr)
+	}
+
+	// Step to line 16 (message := fmt.Sprintf...)
+	err = performNextStep(1)
+	if err != nil {
+		t.Fatalf("Failed to perform third next step: %v", err)
+	}
+
+	// Get fresh stack trace to get current frame ID
+	stackTraceResult, err = ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name:      "stack-trace",
+		Arguments: stackTraceArgs,
+	})
+	if err != nil {
+		t.Fatalf("Failed to get stack trace before scopes: %v", err)
+	}
+
+	// Get variables to verify state
+	scopesArgs := map[string]any{
+		"frameId": 1000,
+	}
+	scopesResult, err := ts.session.CallTool(ts.ctx, &mcp.CallToolParams{
+		Name:      "scopes",
+		Arguments: scopesArgs,
+	})
+	if err != nil {
+		t.Fatalf("Failed to get scopes: %v", err)
+	}
+	scopesStr := scopesResult.Content[0].(*mcp.TextContent).Text
+
+	// Verify variables exist and have expected values
+	if !strings.Contains(scopesStr, "x (int) = 10") {
+		t.Errorf("Expected x to be 10 in scopes, got:\n%s", scopesStr)
+	}
+	if !strings.Contains(scopesStr, "y (int) = 20") {
+		t.Errorf("Expected y to be 20 in scopes, got:\n%s", scopesStr)
+	}
+	if !strings.Contains(scopesStr, "sum (int) = 30") {
+		t.Errorf("Expected sum to be 30 in scopes, got:\n%s", scopesStr)
 	}
 
 	// Stop debugger

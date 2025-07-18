@@ -437,13 +437,29 @@ func nextStep(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolPar
 	if err := client.NextRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to step to next line"); err != nil {
-		return nil, err
+	for {
+		msg, err := client.ReadMessage()
+		if err != nil {
+			return nil, err
+		}
+		switch resp := msg.(type) {
+		case dap.ResponseMessage:
+			if !resp.GetResponse().Success {
+				return nil, fmt.Errorf("%s: %s", "unable to step to next line", resp.GetResponse().Message)
+			}
+		case *dap.StoppedEvent:
+			msg := resp.Body
+			var response string
+			response = formatStoppedResponse(msg)
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Stepped to next line...\n" + response}},
+			}, nil
+		case *dap.TerminatedEvent:
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Stepped to program termination"}},
+			}, nil
+		}
 	}
-
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Stepped to next line"}},
-	}, nil
 }
 
 // StepInParams defines the parameters for stepping into a function.
@@ -459,13 +475,29 @@ func stepIn(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParam
 	if err := client.StepInRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to step into function"); err != nil {
-		return nil, err
+	for {
+		msg, err := client.ReadMessage()
+		if err != nil {
+			return nil, err
+		}
+		switch resp := msg.(type) {
+		case dap.ResponseMessage:
+			if !resp.GetResponse().Success {
+				return nil, fmt.Errorf("%s: %s", "unable to step into function", resp.GetResponse().Message)
+			}
+		case *dap.StoppedEvent:
+			msg := resp.Body
+			var response string
+			response = formatStoppedResponse(msg)
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Stepped into function...\n" + response}},
+			}, nil
+		case *dap.TerminatedEvent:
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Stepped to program termination"}},
+			}, nil
+		}
 	}
-
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Stepped into function"}},
-	}, nil
 }
 
 // StepOutParams defines the parameters for stepping out of a function.
@@ -481,13 +513,29 @@ func stepOut(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolPara
 	if err := client.StepOutRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to step out of function"); err != nil {
-		return nil, err
+	for {
+		msg, err := client.ReadMessage()
+		if err != nil {
+			return nil, err
+		}
+		switch resp := msg.(type) {
+		case dap.ResponseMessage:
+			if !resp.GetResponse().Success {
+				return nil, fmt.Errorf("%s: %s", "unable to step out of function", resp.GetResponse().Message)
+			}
+		case *dap.StoppedEvent:
+			msg := resp.Body
+			var response string
+			response = formatStoppedResponse(msg)
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Stepped out of function...\n" + response}},
+			}, nil
+		case *dap.TerminatedEvent:
+			return &mcp.CallToolResultFor[any]{
+				Content: []mcp.Content{&mcp.TextContent{Text: "Stepped to program termination"}},
+			}, nil
+		}
 	}
-
-	return &mcp.CallToolResultFor[any]{
-		Content: []mcp.Content{&mcp.TextContent{Text: "Stepped out of function"}},
-	}, nil
 }
 
 // PauseParams defines the parameters for pausing execution.
