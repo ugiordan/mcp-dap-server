@@ -14,118 +14,119 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var (
+type debuggerSession struct {
 	cmd    *exec.Cmd
 	client *DAPClient
-)
+}
 
 // registerTools registers the debugger tools with the MCP server.
 // It adds two tools: start-debugger for starting a DAP server and stop-debugger for stopping it.
 func registerTools(server *mcp.Server) {
+	ds := &debuggerSession{}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "start-debugger",
 		Description: "Starts a debugger exposed via a DAP server. You can provide the port you would like the debugger DAP server to listen on.",
-	}, startDebugger)
+	}, ds.startDebugger)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "stop-debugger",
 		Description: "Stops an already running debugger.",
-	}, stopDebugger)
+	}, ds.stopDebugger)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "debug-program",
 		Description: "Tells the debugger running via DAP to debug a local program.",
-	}, debugProgram)
+	}, ds.debugProgram)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "exec-program",
 		Description: "Tells the debugger running via DAP to debug a local program that has already been compiled. The path to the program must be an absolute path, or the program must be in $PATH.",
-	}, execProgram)
+	}, ds.execProgram)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set-breakpoints",
 		Description: "Sets breakpoints in a source file at specified line numbers.",
-	}, setBreakpoints)
+	}, ds.setBreakpoints)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set-function-breakpoints",
 		Description: "Sets breakpoints on functions by name.",
-	}, setFunctionBreakpoints)
+	}, ds.setFunctionBreakpoints)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "configuration-done",
 		Description: "Indicates that the configuration phase is complete and debugging can begin.",
-	}, configurationDone)
+	}, ds.configurationDone)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "continue",
 		Description: "Continues execution of the debugged program.",
-	}, continueExecution)
+	}, ds.continueExecution)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "next",
 		Description: "Steps over the next line of code.",
-	}, nextStep)
+	}, ds.nextStep)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "step-in",
 		Description: "Steps into a function call.",
-	}, stepIn)
+	}, ds.stepIn)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "step-out",
 		Description: "Steps out of the current function.",
-	}, stepOut)
+	}, ds.stepOut)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "pause",
 		Description: "Pauses execution of a thread.",
-	}, pauseExecution)
+	}, ds.pauseExecution)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "threads",
 		Description: "Lists all threads in the debugged program.",
-	}, listThreads)
+	}, ds.listThreads)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "stack-trace",
 		Description: "Gets the stack trace for a thread.",
-	}, getStackTrace)
+	}, ds.getStackTrace)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "scopes",
 		Description: "Gets the scopes for a stack frame.",
-	}, getScopes)
+	}, ds.getScopes)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "variables",
 		Description: "Gets variables in a scope.",
-	}, getVariables)
+	}, ds.getVariables)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "evaluate",
 		Description: "Evaluates an expression in the context of a stack frame.",
-	}, evaluateExpression)
+	}, ds.evaluateExpression)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "disconnect",
 		Description: "Disconnects from the debugger.",
-	}, disconnect)
+	}, ds.disconnect)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "exception-info",
 		Description: "Gets information about an exception in a thread.",
-	}, getExceptionInfo)
+	}, ds.getExceptionInfo)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set-variable",
 		Description: "Sets the value of a variable in the debugged program.",
-	}, setVariable)
+	}, ds.setVariable)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "restart",
 		Description: "Restarts the debugging session.",
-	}, restartDebugger)
+	}, ds.restartDebugger)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "terminate",
 		Description: "Terminates the debuggee process.",
-	}, terminateDebugger)
+	}, ds.terminateDebugger)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "loaded-sources",
 		Description: "Gets the list of all loaded source files.",
-	}, getLoadedSources)
+	}, ds.getLoadedSources)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "modules",
 		Description: "Gets the list of all loaded modules.",
-	}, getModules)
+	}, ds.getModules)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "disassemble",
 		Description: "Disassembles code at a memory reference.",
-	}, disassembleCode)
+	}, ds.disassembleCode)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "attach",
 		Description: "Attaches the debugger to a running process.",
-	}, attachDebugger)
+	}, ds.attachDebugger)
 }
 
 // StartDebuggerParams defines the parameters for starting a debugger.
@@ -136,18 +137,18 @@ type StartDebuggerParams struct {
 // startDebugger starts a debugger DAP server on the specified port.
 // It launches the delve debugger in DAP mode and configures it to listen on the given port.
 // If the port doesn't start with ":", it will be prefixed automatically.
-func startDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StartDebuggerParams]) (*mcp.CallToolResultFor[any], error) {
+func (ds *debuggerSession) startDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StartDebuggerParams]) (*mcp.CallToolResultFor[any], error) {
 	port := params.Arguments.Port
 	if !strings.HasPrefix(port, ":") {
 		port = ":" + port
 	}
-	cmd = exec.Command("dlv", "dap", "--listen", port, "--log", "--log-output", "dap")
-	cmd.Stderr = os.Stderr
-	stdout, err := cmd.StdoutPipe()
+	ds.cmd = exec.Command("dlv", "dap", "--listen", port, "--log", "--log-output", "dap")
+	ds.cmd.Stderr = os.Stderr
+	stdout, err := ds.cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := ds.cmd.Start(); err != nil {
 		return nil, err
 	}
 	r := bufio.NewReader(stdout)
@@ -162,12 +163,12 @@ func startDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallTo
 		}
 	}
 
-	client = newDAPClient("localhost" + port)
-	if err := client.InitializeRequest(); err != nil {
+	ds.client = newDAPClient("localhost" + port)
+	if err := ds.client.InitializeRequest(); err != nil {
 		return nil, err
 	}
 	// Read response to discover server capabilities
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -204,21 +205,21 @@ type StopDebuggerParams struct {
 // stopDebugger stops the currently running debugger process.
 // It kills the debugger process and waits for it to exit.
 // If no debugger is running, it returns a message indicating this.
-func stopDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[StopDebuggerParams]) (*mcp.CallToolResultFor[any], error) {
-	if cmd == nil {
+func (ds *debuggerSession) stopDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[StopDebuggerParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.cmd == nil {
 		return &mcp.CallToolResultFor[any]{
 			Content: []mcp.Content{&mcp.TextContent{Text: "No debugger currently executing."}},
 		}, nil
 	}
 
 	// Close the DAP client connection if it exists
-	if client != nil {
-		client.Close()
-		client = nil
+	if ds.client != nil {
+		ds.client.Close()
+		ds.client = nil
 	}
 
 	// Kill the debugger process
-	if err := cmd.Process.Kill(); err != nil {
+	if err := ds.cmd.Process.Kill(); err != nil {
 		// Ignore the error if the process has already exited
 		if !strings.Contains(err.Error(), "process already finished") {
 			return nil, err
@@ -226,8 +227,8 @@ func stopDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolPara
 	}
 
 	// Wait for the process to finish
-	cmd.Wait() // Ignore error as process might have been killed
-	cmd = nil
+	ds.cmd.Wait() // Ignore error as process might have been killed
+	ds.cmd = nil
 
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: "Debugger stopped."}},
@@ -244,12 +245,12 @@ type DebugProgramParams struct {
 // It sends a launch request to the DAP server with the given program path,
 // then reads the response to verify the launch was successful.
 // Returns an error if the launch fails or if the DAP server reports failure.
-func debugProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DebugProgramParams]) (*mcp.CallToolResultFor[any], error) {
+func (ds *debuggerSession) debugProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DebugProgramParams]) (*mcp.CallToolResultFor[any], error) {
 	path := params.Arguments.Path
-	if err := client.LaunchRequest("debug", path, true); err != nil {
+	if err := ds.client.LaunchRequest("debug", path, true); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to launch program to debug via DAP server"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to launch program to debug via DAP server"); err != nil {
 		return nil, err
 	}
 
@@ -258,12 +259,12 @@ func debugProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToo
 	}, nil
 }
 
-func execProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DebugProgramParams]) (*mcp.CallToolResultFor[any], error) {
+func (ds *debuggerSession) execProgram(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DebugProgramParams]) (*mcp.CallToolResultFor[any], error) {
 	path := params.Arguments.Path
-	if err := client.LaunchRequest("exec", path, true); err != nil {
+	if err := ds.client.LaunchRequest("exec", path, true); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to exec program to debug via DAP server"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to exec program to debug via DAP server"); err != nil {
 		return nil, err
 	}
 
@@ -300,14 +301,14 @@ type SetBreakpointsParams struct {
 }
 
 // setBreakpoints sets breakpoints in a source file at specified line numbers.
-func setBreakpoints(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[SetBreakpointsParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) setBreakpoints(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[SetBreakpointsParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.SetBreakpointsRequest(params.Arguments.File, params.Arguments.Lines); err != nil {
+	if err := ds.client.SetBreakpointsRequest(params.Arguments.File, params.Arguments.Lines); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -340,14 +341,14 @@ type SetFunctionBreakpointsParams struct {
 }
 
 // setFunctionBreakpoints sets breakpoints on functions by name.
-func setFunctionBreakpoints(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[SetFunctionBreakpointsParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) setFunctionBreakpoints(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[SetFunctionBreakpointsParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.SetFunctionBreakpointsRequest(params.Arguments.Functions); err != nil {
+	if err := ds.client.SetFunctionBreakpointsRequest(params.Arguments.Functions); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to set function breakpoints"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to set function breakpoints"); err != nil {
 		return nil, err
 	}
 
@@ -361,14 +362,14 @@ type ConfigurationDoneParams struct {
 }
 
 // configurationDone indicates that configuration is complete and debugging can begin.
-func configurationDone(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[ConfigurationDoneParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) configurationDone(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[ConfigurationDoneParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.ConfigurationDoneRequest(); err != nil {
+	if err := ds.client.ConfigurationDoneRequest(); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to complete configuration"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to complete configuration"); err != nil {
 		return nil, err
 	}
 
@@ -383,15 +384,15 @@ type ContinueParams struct {
 }
 
 // continueExecution continues execution of the debugged program.
-func continueExecution(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ContinueParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) continueExecution(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ContinueParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.ContinueRequest(params.Arguments.ThreadID); err != nil {
+	if err := ds.client.ContinueRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
 	for {
-		msg, err := client.ReadMessage()
+		msg, err := ds.client.ReadMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -430,15 +431,15 @@ type NextParams struct {
 }
 
 // nextStep steps over the next line of code.
-func nextStep(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[NextParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) nextStep(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[NextParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.NextRequest(params.Arguments.ThreadID); err != nil {
+	if err := ds.client.NextRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
 	for {
-		msg, err := client.ReadMessage()
+		msg, err := ds.client.ReadMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -468,15 +469,15 @@ type StepInParams struct {
 }
 
 // stepIn steps into a function call.
-func stepIn(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StepInParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) stepIn(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StepInParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.StepInRequest(params.Arguments.ThreadID); err != nil {
+	if err := ds.client.StepInRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
 	for {
-		msg, err := client.ReadMessage()
+		msg, err := ds.client.ReadMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -506,15 +507,15 @@ type StepOutParams struct {
 }
 
 // stepOut steps out of the current function.
-func stepOut(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StepOutParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) stepOut(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StepOutParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.StepOutRequest(params.Arguments.ThreadID); err != nil {
+	if err := ds.client.StepOutRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
 	for {
-		msg, err := client.ReadMessage()
+		msg, err := ds.client.ReadMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -544,14 +545,14 @@ type PauseParams struct {
 }
 
 // pauseExecution pauses execution of a thread.
-func pauseExecution(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[PauseParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) pauseExecution(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[PauseParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.PauseRequest(params.Arguments.ThreadID); err != nil {
+	if err := ds.client.PauseRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to pause execution"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to pause execution"); err != nil {
 		return nil, err
 	}
 
@@ -565,14 +566,14 @@ type ThreadsParams struct {
 }
 
 // listThreads lists all threads in the debugged program.
-func listThreads(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[ThreadsParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) listThreads(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[ThreadsParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.ThreadsRequest(); err != nil {
+	if err := ds.client.ThreadsRequest(); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -600,8 +601,8 @@ type StackTraceParams struct {
 }
 
 // getStackTrace gets the stack trace for a thread.
-func getStackTrace(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StackTraceParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) getStackTrace(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[StackTraceParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
 
@@ -610,13 +611,13 @@ func getStackTrace(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallTo
 		levels = 20
 	}
 
-	if err := client.StackTraceRequest(params.Arguments.ThreadID, params.Arguments.StartFrame, levels); err != nil {
+	if err := ds.client.StackTraceRequest(params.Arguments.ThreadID, params.Arguments.StartFrame, levels); err != nil {
 		return nil, err
 	}
 
 	// Read messages until we get the stack trace response
 	for {
-		msg, err := client.ReadMessage()
+		msg, err := ds.client.ReadMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -678,14 +679,14 @@ type ScopesParams struct {
 // - Scope names and their variable references
 // - All variables within each scope with their names, types, and values
 // Returns a formatted text representation of the scopes and their variables.
-func getScopes(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ScopesParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) getScopes(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ScopesParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.ScopesRequest(params.Arguments.FrameID); err != nil {
+	if err := ds.client.ScopesRequest(params.Arguments.FrameID); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -708,8 +709,8 @@ func getScopes(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolPa
 			// If the scope has variables, we can fetch them
 			if scope.VariablesReference > 0 {
 				// Request variables for this scope
-				if err := client.VariablesRequest(scope.VariablesReference); err == nil {
-					if varMsg, err := client.ReadMessage(); err == nil {
+				if err := ds.client.VariablesRequest(scope.VariablesReference); err == nil {
+					if varMsg, err := ds.client.ReadMessage(); err == nil {
 						if varResp, ok := varMsg.(*dap.VariablesResponse); ok && varResp.Success {
 							// Format variables
 							for _, variable := range varResp.Body.Variables {
@@ -739,14 +740,14 @@ type VariablesParams struct {
 }
 
 // getVariables gets variables in a scope.
-func getVariables(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[VariablesParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) getVariables(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[VariablesParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.VariablesRequest(params.Arguments.VariablesReference); err != nil {
+	if err := ds.client.VariablesRequest(params.Arguments.VariablesReference); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -771,8 +772,8 @@ type EvaluateParams struct {
 }
 
 // evaluateExpression evaluates an expression in the context of a stack frame.
-func evaluateExpression(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[EvaluateParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) evaluateExpression(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[EvaluateParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
 
@@ -781,14 +782,14 @@ func evaluateExpression(ctx context.Context, _ *mcp.ServerSession, params *mcp.C
 		context = "repl"
 	}
 
-	if err := client.EvaluateRequest(params.Arguments.Expression, params.Arguments.FrameID, context); err != nil {
+	if err := ds.client.EvaluateRequest(params.Arguments.Expression, params.Arguments.FrameID, context); err != nil {
 		return nil, err
 	}
 
 	// Read messages until we get the EvaluateResponse
 	// Events can come at any time, so we need to handle them
 	for {
-		msg, err := client.ReadMessage()
+		msg, err := ds.client.ReadMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -822,14 +823,14 @@ type SetVariableParams struct {
 }
 
 // setVariable sets the value of a variable in the debugged program.
-func setVariable(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[SetVariableParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) setVariable(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[SetVariableParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.SetVariableRequest(params.Arguments.VariablesReference, params.Arguments.Name, params.Arguments.Value); err != nil {
+	if err := ds.client.SetVariableRequest(params.Arguments.VariablesReference, params.Arguments.Name, params.Arguments.Value); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -852,11 +853,11 @@ type RestartParams struct {
 }
 
 // restartDebugger restarts the debugging session.
-func restartDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[RestartParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) restartDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[RestartParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.RestartRequest(map[string]any{
+	if err := ds.client.RestartRequest(map[string]any{
 		"arguments": map[string]any{
 			"request":     "launch",
 			"mode":        "exec",
@@ -866,7 +867,7 @@ func restartDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.Call
 	}); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to restart debugger"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to restart debugger"); err != nil {
 		return nil, err
 	}
 
@@ -880,14 +881,14 @@ type TerminateParams struct {
 }
 
 // terminateDebugger terminates the debuggee process.
-func terminateDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[TerminateParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) terminateDebugger(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[TerminateParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.TerminateRequest(); err != nil {
+	if err := ds.client.TerminateRequest(); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to terminate debugger"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to terminate debugger"); err != nil {
 		return nil, err
 	}
 
@@ -901,14 +902,14 @@ type LoadedSourcesParams struct {
 }
 
 // getLoadedSources gets the list of all loaded source files.
-func getLoadedSources(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[LoadedSourcesParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) getLoadedSources(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[LoadedSourcesParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.LoadedSourcesRequest(); err != nil {
+	if err := ds.client.LoadedSourcesRequest(); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -930,14 +931,14 @@ type ModulesParams struct {
 }
 
 // getModules gets the list of all loaded modules.
-func getModules(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[ModulesParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) getModules(ctx context.Context, _ *mcp.ServerSession, _ *mcp.CallToolParamsFor[ModulesParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.ModulesRequest(); err != nil {
+	if err := ds.client.ModulesRequest(); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -962,14 +963,14 @@ type DisassembleParams struct {
 }
 
 // disassembleCode disassembles code at a memory reference.
-func disassembleCode(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DisassembleParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) disassembleCode(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DisassembleParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.DisassembleRequest(params.Arguments.MemoryReference, params.Arguments.InstructionOffset, params.Arguments.InstructionCount); err != nil {
+	if err := ds.client.DisassembleRequest(params.Arguments.MemoryReference, params.Arguments.InstructionOffset, params.Arguments.InstructionCount); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
@@ -993,14 +994,14 @@ type AttachParams struct {
 }
 
 // attachDebugger attaches the debugger to a running process.
-func attachDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[AttachParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) attachDebugger(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[AttachParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.AttachRequest(params.Arguments.Mode, params.Arguments.ProcessID); err != nil {
+	if err := ds.client.AttachRequest(params.Arguments.Mode, params.Arguments.ProcessID); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to attach to process"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to attach to process"); err != nil {
 		return nil, err
 	}
 
@@ -1015,20 +1016,20 @@ type DisconnectParams struct {
 }
 
 // disconnect disconnects from the debugger.
-func disconnect(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DisconnectParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) disconnect(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[DisconnectParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.DisconnectRequest(params.Arguments.TerminateDebuggee); err != nil {
+	if err := ds.client.DisconnectRequest(params.Arguments.TerminateDebuggee); err != nil {
 		return nil, err
 	}
-	if err := readAndValidateResponse(client, "unable to disconnect"); err != nil {
+	if err := readAndValidateResponse(ds.client, "unable to disconnect"); err != nil {
 		return nil, err
 	}
 
 	// Clean up client connection
-	client.Close()
-	client = nil
+	ds.client.Close()
+	ds.client = nil
 
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: "Disconnected from debugger"}},
@@ -1041,14 +1042,14 @@ type ExceptionInfoParams struct {
 }
 
 // getExceptionInfo gets information about an exception in a thread.
-func getExceptionInfo(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ExceptionInfoParams]) (*mcp.CallToolResultFor[any], error) {
-	if client == nil {
+func (ds *debuggerSession) getExceptionInfo(ctx context.Context, _ *mcp.ServerSession, params *mcp.CallToolParamsFor[ExceptionInfoParams]) (*mcp.CallToolResultFor[any], error) {
+	if ds.client == nil {
 		return nil, fmt.Errorf("debugger not started")
 	}
-	if err := client.ExceptionInfoRequest(params.Arguments.ThreadID); err != nil {
+	if err := ds.client.ExceptionInfoRequest(params.Arguments.ThreadID); err != nil {
 		return nil, err
 	}
-	msg, err := client.ReadMessage()
+	msg, err := ds.client.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
