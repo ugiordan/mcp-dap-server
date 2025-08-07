@@ -51,6 +51,24 @@ cd mcp-dap-server
 go build -o bin/mcp-dap-server
 ```
 
+### Using Pre-built Container Images
+
+For easier deployment, you can use the pre-built container images:
+
+```bash
+# Using the latest stable release
+podman run --rm -p 8080:8080 ghcr.io/go-delve/mcp-dap-server:latest
+
+# Using nightly builds (latest development)
+podman run --rm -p 8080:8080 ghcr.io/go-delve/mcp-dap-server:nightly
+
+# Using edge builds (manual testing)
+podman run --rm -p 8080:8080 ghcr.io/go-delve/mcp-dap-server:edge
+
+# With custom port
+podman run --rm -p 9090:9090 -e PORT=9090 ghcr.io/go-delve/mcp-dap-server:latest
+```
+
 ## Usage
 
 ### Starting the Server
@@ -61,11 +79,19 @@ The server listens on port 8080 by default:
 ./bin/mcp-dap-server
 ```
 
+You can configure the port using the `PORT` environment variable:
+
+```bash
+PORT=9090 ./bin/mcp-dap-server
+```
+
 ### Connecting via MCP
 
 Configure your MCP client to connect to the server at `http://localhost:8080` using the SSE (Server-Sent Events) transport.
 
 ### Example MCP Client Configuration
+
+#### Running from Binary
 
 This configuration should work (or serve as a starting point) for Agents such as (Gemini CLI)[https://developers.google.com/gemini-code-assist/docs/use-agentic-chat-pair-programmer#configure-mcp-servers].
 
@@ -75,6 +101,27 @@ This configuration should work (or serve as a starting point) for Agents such as
     "dap-debugger": {
       "command": "mcp-dap-server",
       "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+#### Running from Container
+
+For container-based deployment:
+
+```json
+{
+  "mcpServers": {
+    "dap-debugger": {
+      "command": "podman",
+      "args": [
+        "run", "-i", "--rm", 
+        "-p", "8080:8080", 
+        "--network", "host",
+        "ghcr.io/go-delve/mcp-dap-server:latest"
+      ],
       "env": {}
     }
   }
